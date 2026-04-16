@@ -1,0 +1,53 @@
+<%= turbo_stream.replace "review-header" do %>
+  <header class="review-header" id="review-header" data-status="<%= @review.status %>">
+    <div class="review-header-info">
+      <h1><%= @review.title.presence || "PR ##{@review.pr_number}" %></h1>
+      <div class="review-meta">
+        <span class="repo-label"><%= @review.full_repo %>#<%= @review.pr_number %></span>
+        <span class="status-badge status-<%= @review.status %>"><%= @review.status.humanize %></span>
+      </div>
+    </div>
+  </header>
+<% end %>
+
+<% if @review.ready? %>
+  <%= turbo_stream.replace "main-content" do %>
+    <div id="main-content">
+      <div class="review-layout">
+        <aside class="sidebar">
+          <%= render "sidebar", review: @review %>
+        </aside>
+
+        <main class="diff-content">
+          <%= render "analysis", review: @review %>
+
+          <% if @review.reading_order_files.any? %>
+            <% @review.reading_order_files.each do |file_entry| %>
+              <%= render "file_diff", file_entry: file_entry, diff_raw: @review.diff_raw %>
+            <% end %>
+          <% elsif @review.diff_raw.present? %>
+            <div class="raw-diff">
+              <h3>Raw Diff</h3>
+              <pre><%= @review.diff_raw %></pre>
+            </div>
+          <% end %>
+        </main>
+
+        <aside class="comments-panel">
+          <h3>Comments</h3>
+          <p class="placeholder-text">Staged comments will appear here</p>
+        </aside>
+      </div>
+    </div>
+  <% end %>
+<% elsif @review.status == "failed" %>
+  <%= turbo_stream.replace "main-content" do %>
+    <div id="main-content">
+      <div class="error-state">
+        <h2>Review Failed</h2>
+        <p>An error occurred while processing this PR. Check the server logs for details.</p>
+        <%= link_to "Try Again", new_review_path, class: "btn-primary" %>
+      </div>
+    </div>
+  <% end %>
+<% end %>

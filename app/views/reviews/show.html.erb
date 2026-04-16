@@ -1,0 +1,56 @@
+<% content_for :title, "Review: #{@review.full_repo}##{@review.pr_number}" %>
+
+<header class="review-header" id="review-header">
+  <div class="review-header-info">
+    <h1><%= @review.title.presence || "PR ##{@review.pr_number}" %></h1>
+    <div class="review-meta">
+      <span class="repo-label"><%= @review.full_repo %>#<%= @review.pr_number %></span>
+      <span class="status-badge status-<%= @review.status %>"><%= @review.status.humanize %></span>
+      <%= link_to "View on GitHub", @review.pr_url, target: "_blank", class: "github-link" %>
+    </div>
+  </div>
+  <%= link_to "New Review", new_review_path, class: "btn-secondary" %>
+</header>
+
+<div id="main-content" data-status="<%= @review.status %>">
+  <% if @review.status.in?(%w[fetching analyzing]) %>
+    <div data-controller="poll" data-poll-url-value="<%= review_path(@review, format: :turbo_stream) %>" data-poll-status-value="<%= @review.status %>">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p><%= @review.status == "fetching" ? "Fetching PR data from GitHub..." : "Analyzing reading order with LLM..." %></p>
+      </div>
+    </div>
+  <% elsif @review.status == "failed" %>
+    <div class="error-state">
+      <h2>Review Failed</h2>
+      <p>An error occurred while processing this PR. Check the server logs for details.</p>
+      <%= link_to "Try Again", new_review_path, class: "btn-primary" %>
+    </div>
+  <% elsif @review.ready? %>
+    <div class="review-layout">
+      <aside class="sidebar">
+        <%= render "sidebar", review: @review %>
+      </aside>
+
+      <main class="diff-content">
+        <%= render "analysis", review: @review %>
+
+        <% if @review.reading_order_files.any? %>
+          <% @review.reading_order_files.each do |file_entry| %>
+            <%= render "file_diff", file_entry: file_entry, diff_raw: @review.diff_raw %>
+          <% end %>
+        <% elsif @review.diff_raw.present? %>
+          <div class="raw-diff">
+            <h3>Raw Diff</h3>
+            <pre><%= @review.diff_raw %></pre>
+          </div>
+        <% end %>
+      </main>
+
+      <aside class="comments-panel">
+        <h3>Comments</h3>
+        <p class="placeholder-text">Staged comments will appear here</p>
+      </aside>
+    </div>
+  <% end %>
+</div>

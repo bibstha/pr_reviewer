@@ -1,0 +1,33 @@
+<% content_for :title, "New PR Review" %>
+
+<div class="new-review-page">
+  <div class="new-review-card">
+    <h1>PR Reviewer</h1>
+    <p class="subtitle">Analyze a GitHub Pull Request in reading order</p>
+
+    <% if flash[:alert] %>
+      <div class="flash-alert"><%= flash[:alert] %></div>
+    <% end %>
+
+    <%= form_with url: reviews_path, method: :post, local: true, class: "review-form" do |f| %>
+      <div class="form-group">
+        <label for="pr_url">Pull Request URL</label>
+        <input type="text" id="pr_url" name="pr_url"
+               placeholder="https://github.com/owner/repo/pull/123"
+               value="<%= params[:pr_url] %>"
+               required autofocus>
+        <span class="hint">Supports: full URL, owner/repo#123, or owner/repo/pull/123</span>
+      </div>
+
+      <div class="form-group">
+        <label for="github_token">GitHub Token</label>
+        <input type="password" id="github_token" name="github_token"
+               placeholder="ghp_xxxxxxxxxxxx"
+               required>
+        <span class="hint">Personal access token with repo scope</span>
+      </div>
+
+      <button type="submit" class="btn-primary">Start Review</button>
+    <% end %>
+  </div>
+</div>

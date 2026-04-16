@@ -1,0 +1,14 @@
+<% file_path = file_entry["path"] %>
+<% reason = file_entry["reason"] %>
+
+<section class="file-diff" id="file-<%= file_path.to_s.parameterize %>" data-file-path="<%= file_path %>">
+  <div class="file-header">
+    <h4 class="file-name"><%= file_path %></h4>
+    <% if reason.present? %>
+      <span class="file-reason-inline"><%= reason %></span>
+    <% end %>
+  </div>
+
+  <div data-controller="diff-viewer" data-diff-viewer-diff-value="<%= ERB::Util.html_escape(extract_file_diff(diff_raw, file_path)) %>">
+  </div>
+</section>

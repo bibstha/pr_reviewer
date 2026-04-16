@@ -1,0 +1,24 @@
+<% if review.reading_order.present? %>
+  <section class="analysis-section">
+    <% if review.body.present? %>
+      <div class="analysis-block">
+        <h3>Context</h3>
+        <p><%= simple_format(review.body) %></p>
+      </div>
+    <% end %>
+
+    <% if review.analysis_before_state.present? %>
+      <div class="analysis-block">
+        <h3>Before State</h3>
+        <p><%= review.analysis_before_state %></p>
+      </div>
+    <% end %>
+
+    <% if review.analysis_problem.present? %>
+      <div class="analysis-block">
+        <h3>Problem</h3>
+        <p><%= review.analysis_problem %></p>
+      </div>
+    <% end %>
+  </section>
+<% end %>

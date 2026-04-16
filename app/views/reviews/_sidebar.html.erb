@@ -1,0 +1,25 @@
+<nav class="file-list" data-controller="sidebar">
+  <h3>Reading Order</h3>
+
+  <% if review.reading_order_files.any? %>
+    <ol class="reading-order">
+      <% review.reading_order_files.each do |file_entry| %>
+        <li>
+          <a href="#file-<%= file_entry[\"path\"].to_s.parameterize %>"
+             data-file-path="<%= file_entry[\"path\"] %>"
+             data-action="click->sidebar#scrollToFile">
+            <span class="file-path"><%= file_entry[\"path\"] %></span>
+            <% if file_entry["reason"].present? %>
+              <span class="file-reason"><%= file_entry["reason"] %></span>
+            <% end %>
+          </a>
+        </li>
+      <% end %>
+    </ol>
+  <% else %>
+    <div class="loading-inline">
+      <div class="spinner spinner-small"></div>
+      <p>Determining reading order...</p>
+    </div>
+  <% end %>
+</nav>
