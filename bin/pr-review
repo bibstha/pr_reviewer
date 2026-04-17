@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# pr-review — spin up a git worktree for a GitHub PR and run a coding agent
+# headlessly inside it, streaming live progress. Your current branch and
+# working tree are untouched.
+#
+# Usage:
+#   cd /path/to/repo
+#   pr-review 1920
+#   pr-review --model opus 1920
+#   pr-review --model gpt-5.1-codex owner/repo#1920
+#   pr-review --raw https://github.com/owner/repo/pull/1920
+#
+# Flags:
+#   --model <alias|pattern>
+#                      Short alias OR raw pattern passed to the agent.
+#                      Built-in aliases (edit the case block below to tune):
+#                        opus       anthropic/claude-opus-4-7
+#                        sonnet     anthropic/claude-sonnet-4-6
+#                        haiku      anthropic/claude-haiku-4-5
+#                        codex      openai-codex/gpt-5.1-codex
+#                        codex-max  openai-codex/gpt-5.1-codex-max
+#                        glm        zai/glm-5.1
+#                        gemini     github-copilot/gemini-3-pro-preview
+#                      Anything else is passed through unchanged — omp/pi's
+#                      own fuzzy matcher takes it from there.
+#                      Default: agent's configured default.
+#   --list-aliases     Print the alias table and exit.
+#   --agent <bin>      Agent binary: omp (default, Oh My Pi) or pi (pi-mono).
+#                      They are separate projects that share a compatible
+#                      non-interactive surface (same --print / --mode json /
+#                      --skill flags, same JSON event schema), so this wrapper
+#                      treats them as peers. Override via PR_REVIEW_AGENT.
+#   --raw              Pass the agent's JSON stream through unformatted
+#                      (useful for debugging).
+#
+# Why one wrapper instead of a per-agent router: omp/pi already abstract
+# Anthropic/OpenAI/Google/Copilot/z.ai/OpenRouter/… behind a single CLI
+# with one event schema and one skill loader. The N-way router lives there,
+# not here.
+#
+# Dependencies: wt, git, gh, jq, and omp (or pi).
+# Skill source: <repo>/skills/review-pr/ (followed through this script's symlink)
+set -euo pipefail
+
+die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
+
+# --- Model aliases ----------------------------------------------------------
+# Pinned to specific versions (edit when new ones ship). Unknown aliases fall
+# through to the agent's own fuzzy matcher.
+
+resolve_model_alias() {
+  # Always emit provider-prefixed IDs: omp's canonical resolver picks the first
+  # provider in pi-ai's descriptor catalog, which can be a gateway you have no
+  # auth for (e.g. kilo wins over zai for glm-5.1). Explicit provider/id goes
+  # through resolveProviderModelReference() which only considers providers you're
+  # actually authenticated with.
+  case "$1" in
+    opus)       echo "anthropic/claude-opus-4-7" ;;
+    sonnet)     echo "anthropic/claude-sonnet-4-6" ;;
+    haiku)      echo "anthropic/claude-haiku-4-5" ;;
+    codex)      echo "openai-codex/gpt-5.1-codex" ;;
+    codex-max)  echo "openai-codex/gpt-5.1-codex-max" ;;
+    codex-mini) echo "openai-codex/gpt-5.1-codex-mini" ;;
+    glm)        echo "zai/glm-5.1" ;;
+    gemini)     echo "github-copilot/gemini-3-pro-preview" ;;
+    *)          echo "$1" ;;   # pass through unchanged (already has a provider, or user's custom)
+  esac
+}
+
+print_aliases() {
+  cat <<'EOF'
+Built-in model aliases (pass any of these to --model):
+
+  opus        -> anthropic/claude-opus-4-7
+  sonnet      -> anthropic/claude-sonnet-4-6
+  haiku       -> anthropic/claude-haiku-4-5
+  codex       -> openai-codex/gpt-5.1-codex
+  codex-max   -> openai-codex/gpt-5.1-codex-max
+  codex-mini  -> openai-codex/gpt-5.1-codex-mini
+  glm         -> zai/glm-5.1
+  gemini      -> github-copilot/gemini-3-pro-preview
+
+Aliases emit provider-prefixed IDs (provider/model) to avoid omp's canonical
+resolver picking a gateway provider you're not authenticated with (e.g. kilo).
+
+Any other --model value is passed through to omp/pi's fuzzy matcher unchanged.
+Edit resolve_model_alias() in bin/pr-review to tune.
+EOF
+}
+
+# --- Resolve SCRIPT_DIR through the ~/bin symlink ---------------------------
+
+resolve_self() {
+  local src="${BASH_SOURCE[0]}"
+  while [[ -L "$src" ]]; do
+    local d; d="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" != /* ]] && src="$d/$src"
+  done
+  cd -P "$(dirname "$src")" && pwd
+}
+SCRIPT_DIR="$(resolve_self)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/../skills/review-pr" && pwd)"
+
+# --- Arg parsing -------------------------------------------------------------
+
+agent="${PR_REVIEW_AGENT:-omp}"
+model="${PR_REVIEW_MODEL:-}"
+raw=0
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent)    shift; [[ $# -gt 0 ]] || die "--agent needs a value"; agent="$1"; shift ;;
+    --agent=*)  agent="${1#--agent=}"; shift ;;
+    --model)    shift; [[ $# -gt 0 ]] || die "--model needs a value"; model="$1"; shift ;;
+    --model=*)  model="${1#--model=}"; shift ;;
+    --raw)      raw=1; shift ;;
+    --list-aliases) print_aliases; exit 0 ;;
+    --help|-h)  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --*)        die "unknown flag: $1" ;;
+    *)          args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+# Resolve model alias (no-op for non-alias inputs).
+[[ -n "$model" ]] && model="$(resolve_model_alias "$model")"
+[[ $# -ge 1 ]] || die "usage: $(basename "$0") [--model PATTERN] [--agent omp|pi] [--raw] <pr-url|owner/repo#N|N>"
+
+case "$agent" in omp|pi) ;; *) die "--agent must be omp or pi, got: $agent" ;; esac
+for cmd in wt git gh jq "$agent"; do
+  command -v "$cmd" >/dev/null || die "$cmd not found on PATH"
+done
+
+# --- Parse PR reference ------------------------------------------------------
+
+arg="$1"; shift || true
+owner=""; repo=""; pr_number=""
+
+if [[ "$arg" =~ ^https?://github\.com/([^/]+)/([^/]+)/pull/([0-9]+)/?$ ]]; then
+  owner="${BASH_REMATCH[1]}"; repo="${BASH_REMATCH[2]}"; pr_number="${BASH_REMATCH[3]}"
+elif [[ "$arg" =~ ^([^/]+)/([^#]+)#([0-9]+)$ ]]; then
+  owner="${BASH_REMATCH[1]}"; repo="${BASH_REMATCH[2]}"; pr_number="${BASH_REMATCH[3]}"
+elif [[ "$arg" =~ ^#?([0-9]+)$ ]]; then
+  pr_number="${BASH_REMATCH[1]}"
+else
+  die "unrecognized PR reference: $arg"
+fi
+
+git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git repository"
+cd "$(git rev-parse --show-toplevel)"
+
+current_owner="$(gh repo view --json owner --jq .owner.login 2>/dev/null || true)"
+current_repo="$(gh repo view --json name  --jq .name         2>/dev/null || true)"
+[[ -n "$current_owner" && -n "$current_repo" ]] || die "could not resolve current repo via gh"
+
+if [[ -z "$owner" ]]; then
+  owner="$current_owner"; repo="$current_repo"
+elif [[ "$owner" != "$current_owner" || "$repo" != "$current_repo" ]]; then
+  die "cwd is $current_owner/$current_repo, but PR is from $owner/$repo — cd into the right clone first"
+fi
+
+html_path="pr-review-$(echo "$owner-$repo-$pr_number" | tr '[:upper:]' '[:lower:]').html"
+
+# --- Create worktree, capture its path (subshell keeps us in control) --------
+
+status_line="pr-review [$agent${model:+ / $model}]"
+printf '%s: preparing worktree for %s/%s#%s\n' "$status_line" "$owner" "$repo" "$pr_number" >&2
+worktree_path="$(wt switch "pr:$pr_number" -x pwd --)"
+[[ -n "$worktree_path" && -d "$worktree_path" ]] || die "wt switch did not produce a valid worktree path: '$worktree_path'"
+printf '%s: worktree at %s\n' "$status_line" "$worktree_path" >&2
+
+# --- Build prompt and agent invocation --------------------------------------
+
+prompt=$(cat <<EOF
+Use the review-pr skill to review PR #${pr_number} of ${owner}/${repo}.
+
+Context from the caller:
+- The current working directory is a git worktree already checked out at the PR
+  head commit. Do NOT run gh pr checkout or any branch-mutating command.
+- Save the HTML to ./${html_path}
+- After writing the file, run: open ./${html_path}
+
+Proceed directly: fetch PR metadata + diff with gh, explore the codebase with
+read/grep, produce the reading order, fill the template, save, and open.
+EOF
+)
+
+agent_args=(--print --mode json --no-session --skill "$SKILL_DIR")
+[[ -n "$model" ]] && agent_args=(--model "$model" "${agent_args[@]}")
+agent_args+=("$prompt")
+
+cd "$worktree_path"
+
+# --- Formatter (omp/pi `--mode json` event schema) --------------------------
+
+use_color() {
+  [[ -n "${NO_COLOR:-}" ]] && { echo 0; return; }
+  [[ -t 1 ]] || { echo 0; return; }
+  echo 1
+}
+
+format_stream() {
+  jq --unbuffered -r --argjson c "$(use_color)" '
+    def col($n): if $c == 1 then "\u001b[" + $n + "m" else "" end;
+    def rst:    if $c == 1 then "\u001b[0m" else "" end;
+
+    def compact_args:
+      if type == "object" then
+        [ to_entries[] |
+          (.value | if type == "string" then . else tostring end) as $v |
+          "\(.key)=\($v | gsub("\n"; " ") | .[0:60])"
+        ] | join(" ") | .[0:120]
+      else tostring | gsub("\n"; " ") | .[0:120] end;
+
+    # --- Session / agent lifecycle ---
+    if .type == "session" then
+      col("2") + "[session]" + rst + " cwd=" + (.cwd // "?")
+
+    elif .type == "turn_start" then
+      empty   # too chatty; skip
+
+    # --- Tool calls ---
+    elif .type == "tool_execution_start" then
+      col("36") + "\u2192 " + rst + (.toolName // .name // "tool") +
+      (if (.arguments // .input // {}) != {} then " " + col("2") + ((.arguments // .input) | compact_args) + rst else "" end)
+
+    elif .type == "tool_execution_end" then
+      (.result // {}) as $r |
+      if (.isError // $r.isError // false) then
+        col("31") + "\u2717 error" + rst
+      else
+        # tool_execution_end payload includes result.content array
+        (($r.content // []) | map(.text // "") | join("") | length) as $len |
+        col("32") + "\u2713" + rst + " " + col("2") + "(" + ($len|tostring) + "c)" + rst
+      end
+
+    # --- Assistant text / thinking (use *_end for full, coherent lines) ---
+    elif .type == "message_update" and (.assistantMessageEvent.type // "") == "text_end" then
+      (.assistantMessageEvent.content // "") as $t |
+      ($t | gsub("\r?\n"; " ") | gsub("[[:space:]]+"; " ") | .[0:160]) as $s |
+      if ($s | length) > 0 then col("2") + "\u2502 " + $s + rst else empty end
+
+    elif .type == "message_update" and (.assistantMessageEvent.type // "") == "thinking_end" then
+      (.assistantMessageEvent.content // "") as $t |
+      ($t | gsub("\r?\n"; " ") | .[0:140]) as $s |
+      if ($s | length) > 0 then col("2") + "\u00b7 " + $s + rst else empty end
+
+    # --- Per-turn cost / usage summary ---
+    elif .type == "message_end" and (.message.role // "") == "assistant" then
+      (.message.usage // {}) as $u |
+      (.message.duration // 0) as $ms |
+      (.message.model // "") as $mdl |
+      if ($u.totalTokens // 0) > 0 then
+        col("2") + "  " + $mdl + "  " +
+        (($ms / 1000 | floor | tostring)) + "s  " +
+        "in=" + (($u.input // 0)|tostring) + " out=" + (($u.output // 0)|tostring) +
+        (if ($u.cost.total // 0) > 0 then " $" + (($u.cost.total * 10000 | floor / 10000)|tostring) else "" end) +
+        rst
+      else empty end
+
+    # --- Done ---
+    elif .type == "agent_end" then
+      col("32") + "\u25cf done" + rst
+
+    else empty end
+  ' 2>/dev/null || true
+}
+
+# --- Dispatch ----------------------------------------------------------------
+
+printf '%s: running (ctrl-c to abort)\u2026\n' "$status_line" >&2
+
+set -o pipefail
+
+if [[ "$raw" -eq 1 ]]; then
+  "$agent" "${agent_args[@]}"
+else
+  "$agent" "${agent_args[@]}" | format_stream
+fi
+
+rc=${PIPESTATUS[0]}
+[[ "$rc" -eq 0 ]] || die "$agent exited with status $rc"

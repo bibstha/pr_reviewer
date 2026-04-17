@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{TITLE}} · {{REPO}}#{{PR_NUMBER}}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
+  <style>
+    :root {
+      --fg: #1f2328;
+      --muted: #656d76;
+      --border: #d0d7de;
+      --bg: #ffffff;
+      --bg-soft: #f6f8fa;
+      --accent: #0969da;
+      --ok: #1a7f37;
+      --warn: #9a6700;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      border-right: 1px solid var(--border);
+      background: var(--bg-soft);
+      padding: 16px;
+      position: sticky;
+      top: 0;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    aside h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+    aside ol { list-style: none; padding: 0; margin: 0; }
+    aside li { margin-bottom: 6px; }
+    aside a {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: var(--fg);
+      border: 1px solid transparent;
+    }
+    aside a:hover { background: #fff; border-color: var(--border); text-decoration: none; }
+    aside a .idx { color: var(--muted); font-variant-numeric: tabular-nums; }
+    aside a .path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+    aside a .summary { grid-column: 2; color: var(--muted); font-size: 12px; }
+
+    main { padding: 24px 32px; max-width: 100%; min-width: 0; }
+
+    header.pr {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    header.pr h1 { margin: 0 0 6px; font-size: 20px; }
+    header.pr .meta { color: var(--muted); font-size: 13px; }
+    header.pr .meta code { background: var(--bg-soft); padding: 1px 6px; border-radius: 4px; }
+
+    section.block { margin-bottom: 28px; }
+    section.block > h2 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+
+    .markdown h1 { font-size: 18px; margin: 16px 0 8px; }
+    .markdown h2 { font-size: 16px; margin: 16px 0 8px; }
+    .markdown h3 { font-size: 14px; margin: 12px 0 6px; }
+    .markdown p  { margin: 0 0 10px; }
+    .markdown ul, .markdown ol { margin: 0 0 10px; padding-left: 22px; }
+    .markdown li { margin-bottom: 4px; }
+    .markdown code { background: var(--bg-soft); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+    .markdown pre { background: var(--bg-soft); padding: 12px; border-radius: 6px; overflow-x: auto; }
+    .markdown pre code { background: transparent; padding: 0; }
+    .markdown blockquote { border-left: 3px solid var(--border); margin: 0 0 10px; padding: 0 12px; color: var(--muted); }
+    .markdown a { color: var(--accent); }
+    .markdown table { border-collapse: collapse; margin-bottom: 10px; }
+    .markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; }
+
+    .mermaid {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+
+    section.file {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    section.file > header {
+      background: var(--bg-soft);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 4px 10px;
+    }
+    section.file > header .idx {
+      grid-row: 1 / span 2;
+      align-self: center;
+      justify-self: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #fff;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    section.file > header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+    section.file > header .summary {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    section.file .details { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    section.file .details:empty { display: none; }
+    section.file .diff { padding: 0; }
+    section.file .diff .d2h-file-wrapper { margin: 0; border: none; border-radius: 0; }
+
+    .empty-diff {
+      padding: 16px;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .verdict {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      background: var(--bg-soft);
+    }
+    .verdict h2 { margin-top: 0; }
+    .verdict__badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      background: #e0e0e0;
+      color: #333;
+    }
+    .verdict--ship-it       .verdict__badge { background: #dafbe1; color: #1a7f37; }
+    .verdict--ship-with-nits .verdict__badge { background: #fff8c5; color: #9a6700; }
+    .verdict--needs-changes .verdict__badge { background: #ffd8b5; color: #b35900; }
+    .verdict--blocking-issues .verdict__badge { background: #ffd7d5; color: #cf222e; }
+    .verdict__summary { background: var(--bg); padding: 14px 16px; border-radius: 6px; border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <h2>Reading order</h2>
+      <ol>
+        {{SIDEBAR_ITEMS}}
+      </ol>
+    </aside>
+    <main>
+      <header class="pr">
+        <h1><a href="{{PR_URL}}">{{TITLE}}</a></h1>
+        <div class="meta">
+          <code>{{REPO}}#{{PR_NUMBER}}</code>
+          &middot; base <code>{{BASE_SHA}}</code>
+          &middot; head <code>{{HEAD_SHA}}</code>
+          &middot; generated <time>{{GENERATED_AT}}</time>
+        </div>
+      </header>
+
+      <section class="block">
+        <h2>Before state</h2>
+        <div class="markdown" data-md="{{BEFORE_STATE_MD}}"></div>
+      </section>
+
+      <section class="block">
+        <h2>Problem</h2>
+        <div class="markdown" data-md="{{PROBLEM_MD}}"></div>
+      </section>
+
+      <section class="block" id="architecture">
+        <h2>Architecture</h2>
+        <div class="mermaid">{{DIAGRAM}}</div>
+      </section>
+
+      <section class="block">
+        <h2>Files</h2>
+        {{FILE_SECTIONS}}
+      </section>
+
+      <section class="block verdict verdict--{{VERDICT_STATUS}}">
+        <h2>Verdict</h2>
+        <div class="verdict__badge">{{VERDICT_LABEL}}</div>
+        <div class="verdict__summary markdown" data-md="{{VERDICT_SUMMARY_MD}}"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>const RAW_DIFF = {{RAW_DIFF_JSON}};</script>
+  <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    // --- Markdown rendering (reads data-md attributes, decodes HTML entities, renders with marked) ---
+    function decodeEntities(s) {
+      const t = document.createElement("textarea");
+      t.innerHTML = s;
+      return t.value;
+    }
+    for (const el of document.querySelectorAll(".markdown[data-md]")) {
+      const raw = decodeEntities(el.getAttribute("data-md") || "");
+      el.innerHTML = raw.trim() ? marked.parse(raw) : "";
+      el.removeAttribute("data-md");
+    }
+
+    // --- Mermaid ---
+    const diagramEl = document.querySelector(".mermaid");
+    if (diagramEl && diagramEl.textContent.trim()) {
+      mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+      try {
+        await mermaid.run({ nodes: [diagramEl] });
+      } catch (e) {
+        diagramEl.innerHTML = `<pre style="color:#cf222e">Mermaid render failed:\n${e.message}</pre><pre>${diagramEl.textContent}</pre>`;
+      }
+    } else if (diagramEl) {
+      diagramEl.closest("section.block")?.remove();
+    }
+
+    // --- Diff rendering, split by file, each rendered into its own section[data-file] container ---
+    function splitDiffByFile(raw) {
+      if (!raw) return new Map();
+      const chunks = raw.split(/(?=^diff --git )/m).filter(Boolean);
+      const map = new Map();
+      for (const chunk of chunks) {
+        // "diff --git a/<path> b/<path>"
+        const m = chunk.match(/^diff --git a\/(\S+) b\/(\S+)/);
+        if (!m) continue;
+        // Use the b/ path (post-change) as the key
+        map.set(m[2], chunk);
+      }
+      return map;
+    }
+
+    const diffByFile = splitDiffByFile(RAW_DIFF);
+    for (const container of document.querySelectorAll("section.file .diff[data-file]")) {
+      const path = container.getAttribute("data-file");
+      const chunk = diffByFile.get(path);
+      if (!chunk) {
+        container.innerHTML = `<div class="empty-diff">No diff hunks for <code>${path}</code>.</div>`;
+        continue;
+      }
+      const ui = new Diff2HtmlUI(container, chunk, {
+        drawFileList: false,
+        matching: "lines",
+        outputFormat: "line-by-line",
+        highlight: true,
+      });
+      ui.draw();
+      ui.highlightCode();
+    }
+  </script>
+</body>
+</html>
