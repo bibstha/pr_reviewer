@@ -20,6 +20,20 @@ pr-review [omp]: running (ctrl-c to abort)…
 
 The script streams live progress (tool calls, thinking, per-turn cost), exits when the agent is done, and opens the generated HTML in your browser. Your current branch, index, and working tree are untouched.
 
+## What the output looks like
+
+Run against [`cli/cli#13210`](https://github.com/cli/cli/pull/13210) ("Record CI context in telemetry"):
+
+![Overview: reading-order sidebar, before-state, problem, Mermaid architecture diagram](docs/screenshots/overview.png)
+
+Each reviewed file gets a short summary, a 2–4 sentence review guide (citing actual symbols the agent read in the code), and its own diff rendered by diff2html:
+
+![Per-file review: summary, details, and rendered diff](docs/screenshots/file-detail.png)
+
+At the bottom, a verdict block with one of `ship-it` / `ship-with-nits` / `needs-changes` / `blocking-issues` plus the specific concerns a reviewer should raise:
+
+![Verdict: ship-it badge with concrete concerns and skip count](docs/screenshots/verdict.png)
+
 ## What's in the box
 
 ```
